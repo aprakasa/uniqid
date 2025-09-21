@@ -1,0 +1,18 @@
+# Ensure Go files are detected as Go language
+*.go linguist-detectable=true
+*.go linguist-language=Go
+
+# Force LF line endings (cross-platform safety)
+* text=auto eol=lf
+
+# Treat documentation as docs (not source code)
+*.md linguist-documentation
+
+# Ignore vendored dependencies for stats
+vendor/* linguist-vendored
+
+# Binary files
+*.exe binary
+*.dll binary
+*.so  binary
+*.dylib binary
