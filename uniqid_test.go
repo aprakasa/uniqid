@@ -53,6 +53,76 @@ func TestNewGenerator(t *testing.T) {
 	if gen.baseEpoch != customEpoch {
 		t.Errorf("Expected custom epoch, got default")
 	}
+
+	// Test with zero epoch
+	gen, err = New(&Config{CustomEpochMs: 0})
+	if err != nil {
+		t.Fatalf("New({CustomEpochMs: 0}) failed: %v", err)
+	}
+	if gen.baseEpoch != defaultEpochMs {
+		t.Errorf("Expected default epoch, got %d", gen.baseEpoch)
+	}
+
+	// Test auto-shard failure
+	originalAutoShard := autoShardFunc
+	autoShardFunc = func(d deps) (uint16, error) {
+		return 0, errors.New("auto shard failed")
+	}
+	_, err = New(&Config{ShardID: -1})
+	if err == nil {
+		t.Error("Expected error from New with auto-shard failure, got nil")
+	}
+	autoShardFunc = originalAutoShard
+}
+
+// TestGenFunction tests the new Gen() wrapper function
+func TestGenFunction(t *testing.T) {
+	// Test case 1: Successful call with no config (uses default generator)
+	id, err := Gen()
+	if err != nil {
+		t.Fatalf("Gen() failed: %v", err)
+	}
+	if len(id) != 11 {
+		t.Errorf("Expected ID length 11 from Gen(), got %d", len(id))
+	}
+
+	// Test case 2: Successful call with a specific config
+	id, err = Gen(&Config{ShardID: 42})
+	if err != nil {
+		t.Fatalf("Gen({ShardID: 42}) failed: %v", err)
+	}
+	if len(id) != 11 {
+		t.Errorf("Expected ID length 11 from Gen({ShardID: 42}), got %d", len(id))
+	}
+
+	// Test case 3: Call with an invalid config
+	_, err = Gen(&Config{ShardID: 9999})
+	if err == nil {
+		t.Error("Expected error for invalid shardID in Gen(), got nil")
+	}
+
+	// Test case 4: Test default generator initialization error
+	defaultGenOnce = sync.Once{}
+	defaultGen = nil
+	defaultGenErr = nil
+
+	originalNew := newFunc
+	newFunc = func(cfg *Config) (*Generator, error) {
+		return nil, errors.New("init failed")
+	}
+
+	_, err = Gen()
+	if err == nil {
+		t.Error("Expected error from failed default generator init, got nil")
+	}
+	if err.Error() != "init failed" {
+		t.Errorf("Expected 'init failed' error, got '%v'", err)
+	}
+
+	newFunc = originalNew
+	defaultGenOnce = sync.Once{}
+	defaultGen = nil
+	defaultGenErr = nil
 }
 
 // TestAutoShardLogic tests the different fallback paths for auto-sharding
@@ -65,7 +135,10 @@ func TestAutoShardLogic(t *testing.T) {
 			}}, nil
 		},
 	}
-	shard1 := autoShardWithDeps(d1)
+	shard1, err := autoShardWithDeps(d1)
+	if err != nil {
+		t.Fatalf("autoShardWithDeps(d1) failed: %v", err)
+	}
 	if shard1 == 0 {
 		t.Error("Expected a non-zero shard from MAC address")
 	}
@@ -75,7 +148,10 @@ func TestAutoShardLogic(t *testing.T) {
 		ifacesFunc: func() ([]net.Interface, error) { return nil, errors.New("net error") },
 		hostFunc:   func() (string, error) { return "test-host", nil },
 	}
-	shard2 := autoShardWithDeps(d2)
+	shard2, err := autoShardWithDeps(d2)
+	if err != nil {
+		t.Fatalf("autoShardWithDeps(d2) failed: %v", err)
+	}
 	if shard2 == 0 {
 		t.Error("Expected a non-zero shard from hostname")
 	}
@@ -86,25 +162,23 @@ func TestAutoShardLogic(t *testing.T) {
 		hostFunc:   func() (string, error) { return "", errors.New("host error") },
 		randFunc:   rand.Read,
 	}
-	shard3 := autoShardWithDeps(d3)
+	shard3, err := autoShardWithDeps(d3)
+	if err != nil {
+		t.Fatalf("autoShardWithDeps(d3) failed: %v", err)
+	}
 	if shard3 == 0 {
 		t.Error("Expected a non-zero shard from random bytes")
 	}
 
-	// 4. Time based (all others fail)
+	// 4. Error case (all others fail)
 	d4 := deps{
 		ifacesFunc: func() ([]net.Interface, error) { return nil, errors.New("net error") },
 		hostFunc:   func() (string, error) { return "", errors.New("host error") },
 		randFunc:   func(b []byte) (int, error) { return 0, errors.New("rand error") },
 	}
-	shard4 := autoShardWithDeps(d4)
-	if shard4 == 0 {
-		// This could technically be 0, but it's highly unlikely.
-		// A better test would be to check if it's within the valid range.
-		t.Logf("Got shard 0 from time, which is possible but unlikely")
-	}
-	if shard4 > 1023 {
-		t.Errorf("Time-based shard out of range: %d", shard4)
+	_, err = autoShardWithDeps(d4)
+	if err == nil {
+		t.Error("Expected error from autoShardWithDeps(d4), got nil")
 	}
 
 	// 5. Loopback interface should be skipped
@@ -116,7 +190,10 @@ func TestAutoShardLogic(t *testing.T) {
 			}, nil
 		},
 	}
-	shard5 := autoShardWithDeps(d5)
+	shard5, err := autoShardWithDeps(d5)
+	if err != nil {
+		t.Fatalf("autoShardWithDeps(d5) failed: %v", err)
+	}
 	if shard5 == 0 {
 		t.Error("Expected a non-zero shard from the non-loopback MAC address")
 	}
@@ -130,7 +207,10 @@ func TestAutoShardLogic(t *testing.T) {
 			}, nil
 		},
 	}
-	shard6 := autoShardWithDeps(d6)
+	shard6, err := autoShardWithDeps(d6)
+	if err != nil {
+		t.Fatalf("autoShardWithDeps(d6) failed: %v", err)
+	}
 	if shard6 == 0 {
 		t.Error("Expected a non-zero shard from the valid second interface")
 	}
@@ -148,7 +228,7 @@ func TestNextIDGeneration(t *testing.T) {
 	// Test for uniqueness
 	const numIDs = 10000
 	idSet := make(map[string]struct{}, numIDs)
-	for range numIDs {
+	for i := 0; i < numIDs; i++ {
 		idSet[gen.Next()] = struct{}{}
 	}
 	if len(idSet) != numIDs {
@@ -167,16 +247,18 @@ func TestSequenceRollover(t *testing.T) {
 	gen.deps.nowFunc = mockNowFunc
 
 	// Exhaust the sequence
-	for range 1 << 15 {
+	for i := 0; i < 1<<15; i++ {
 		_ = gen.Next()
 	}
 
 	// The next call should trigger the spin wait
 	var wg sync.WaitGroup
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		time.Sleep(5 * time.Millisecond) // Give the spin loop time to start
 		mockTime++
-	})
+	}()
 
 	_ = gen.Next() // This will block until mockTime is incremented
 	wg.Wait()
@@ -235,8 +317,8 @@ func TestSpinUntilNextMs(t *testing.T) {
 
 func BenchmarkNextID(b *testing.B) {
 	gen, _ := New(&Config{ShardID: 1})
-
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		_ = gen.Next()
 	}
 }

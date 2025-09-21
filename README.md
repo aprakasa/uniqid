@@ -50,7 +50,40 @@ Inspired by **YouTube video IDs** and **Twitter Snowflake**, but optimized for s
 go get github.com/aprakasa/uniqid
 ```
 
-## 📝 Usage
+## 🚀 Quick Start
+
+For most use cases, you can use the `Gen` function to get a unique ID directly.
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/aprakasa/uniqid"
+	"log"
+)
+
+func main() {
+	// Get a unique ID with the default configuration
+	id, err := uniqid.Gen()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(id)
+
+	// Or, generate an ID with a custom shard ID
+	id, err = uniqid.Gen(&uniqid.Config{ShardID: 2})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(id)
+}
+```
+
+## 📝 Advanced Usage
+
+If you need to generate many IDs in a tight loop, it's more performant to create a generator instance once and reuse it.
+
 ```go
 package main
 
@@ -60,7 +93,7 @@ import (
 )
 
 func main() {
-    // Create generator with ShardID = 1
+    // Create a generator with ShardID = 1
     gen, _ := uniqid.New(&uniqid.Config{ShardID: 1})
 
     // Generate unique IDs
@@ -72,12 +105,14 @@ func main() {
     // Ab3Xyz0LmN0
     // Ab3Xyz0LmN1
 }
-
 ```
 
 ## 📖 Documentation
 
 Full API reference is available on [pkg.go.dev](https://pkg.go.dev/github.com/aprakasa/uniqid).
+
+- [Gen](https://pkg.go.dev/github.com/aprakasa/uniqid#Gen)  
+  Generate a new unique ID with an optional config (recommended for simplicity).
 
 - [New](https://pkg.go.dev/github.com/aprakasa/uniqid#New)  
   Create a new ID generator with optional configuration (shard ID, custom epoch).

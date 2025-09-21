@@ -36,6 +36,8 @@ type Generator struct {
 	deps      deps
 }
 
+var autoShardFunc = autoShardWithDeps
+
 // New creates a new ID generator with the given configuration.
 //
 // Config options:
@@ -86,10 +88,52 @@ func New(cfg *Config) (*Generator, error) {
 		}
 		g.shard = uint16(cfg.ShardID)
 	} else {
-		g.shard = autoShardWithDeps(g.deps)
+		shard, err := autoShardFunc(g.deps)
+		if err != nil {
+			return nil, err
+		}
+		g.shard = shard
 	}
 
 	return g, nil
+}
+
+var (
+	defaultGen     *Generator
+	defaultGenErr  error
+	defaultGenOnce sync.Once
+)
+
+var newFunc = New
+
+// Gen creates a new unique ID, optionally with a custom configuration.
+//
+// If no config is provided, it uses a default, package-level generator.
+// This is the simplest way to get a unique ID.
+// Example:
+//
+//	id, err := uniqid.Gen()
+//
+// If a config is provided, it creates a new generator for this specific
+// call. This is useful for one-off ID generation with special settings.
+// Example:
+//
+//	id, err := uniqid.Gen(&uniqid.Config{ShardID: 2})
+func Gen(cfgs ...*Config) (string, error) {
+	if len(cfgs) == 0 {
+		defaultGenOnce.Do(func() {
+			defaultGen, defaultGenErr = newFunc(nil)
+		})
+		if defaultGenErr != nil {
+			return "", defaultGenErr
+		}
+		return defaultGen.Next(), nil
+	}
+	g, err := newFunc(cfgs[0])
+	if err != nil {
+		return "", err
+	}
+	return g.Next(), nil
 }
 
 // Next generates a new unique 11-character ID.
@@ -143,7 +187,7 @@ type deps struct {
 // autoShardWithDeps tries to derive a shard ID automatically from
 // network interface MAC, hostname, or random fallback.
 // Used internally when Config.ShardID = -1.
-func autoShardWithDeps(d deps) uint16 {
+func autoShardWithDeps(d deps) (uint16, error) {
 	if ifs, _ := d.ifacesFunc(); len(ifs) > 0 {
 		for _, in := range ifs {
 			if in.Flags&net.FlagLoopback != 0 || len(in.HardwareAddr) == 0 {
@@ -151,19 +195,19 @@ func autoShardWithDeps(d deps) uint16 {
 			}
 			h := fnv.New32a()
 			_, _ = h.Write(in.HardwareAddr)
-			return uint16(h.Sum32() & 0x3FF)
+			return uint16(h.Sum32() & 0x3FF), nil
 		}
 	}
 	if hn, err := d.hostFunc(); err == nil {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(hn))
-		return uint16(h.Sum32() & 0x3FF)
+		return uint16(h.Sum32() & 0x3FF), nil
 	}
 	var b [2]byte
 	if _, err := d.randFunc(b[:]); err == nil {
-		return binary.BigEndian.Uint16(b[:]) & 0x3FF
+		return binary.BigEndian.Uint16(b[:]) & 0x3FF, nil
 	}
-	return uint16(time.Now().UnixNano() & 0x3FF)
+	return 0, errors.New("could not determine shard ID")
 }
 
 // spinUntilNextMs blocks until the next millisecond tick.
